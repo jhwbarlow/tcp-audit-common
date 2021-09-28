@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/jhwbarlow/tcp-audit-common/pkg/socketstate"
 	"github.com/jhwbarlow/tcp-audit-common/pkg/tcpstate"
 )
 
@@ -28,10 +29,16 @@ type Event struct {
 	SourceIP, DestIP     net.IP
 	SourcePort, DestPort uint16
 	OldState, NewState   tcpstate.State
+	SocketInfo           *SocketInfo // nil if eventer is not able to provide socket info
 }
 
 func (e *Event) String() string {
-	return fmt.Sprintf("PID (on CPU): %d, Command (on CPU): %s, Source Port: %v:%d, Destination Port: %v:%d, Old State: %v, New State: %v",
+	socketInfo := "<not available>"
+	if e.SocketInfo != nil {
+		socketInfo = e.SocketInfo.String()
+	}
+
+	return fmt.Sprintf("PID (on CPU): %d, Command (on CPU): %s, Source Port: %v:%d, Destination Port: %v:%d, Old State: %v, New State: %v, Socket Info: [%s]",
 		e.PIDOnCPU,
 		e.CommandOnCPU,
 		e.SourceIP,
@@ -39,11 +46,16 @@ func (e *Event) String() string {
 		e.DestIP,
 		e.DestPort,
 		e.OldState,
-		e.NewState)
+		e.NewState,
+		socketInfo)
 }
 
 func (e *Event) Equal(event *Event) bool {
-	return event.Time == e.Time &&
+	if e == event {
+		return true
+	}
+
+	equal := event.Time == e.Time &&
 		event.PIDOnCPU == e.PIDOnCPU &&
 		event.CommandOnCPU == e.CommandOnCPU &&
 		event.SourceIP.Equal(e.SourceIP) &&
@@ -52,4 +64,38 @@ func (e *Event) Equal(event *Event) bool {
 		event.DestPort == e.DestPort &&
 		event.OldState == e.OldState &&
 		event.NewState == e.NewState
+
+	switch {
+	case e.SocketInfo != nil && event.SocketInfo != nil:
+		return equal && event.SocketInfo.Equal(e.SocketInfo)
+	case e.SocketInfo == nil && event.SocketInfo == nil:
+		return equal
+	default: // One is nil but the other is not
+		return false
+	}
+}
+
+// SocketInfo contains internal kernel implementation detail of a socket
+type SocketInfo struct {
+	ID          string
+	INode       uint32
+	UID, GID    uint32
+	SocketState socketstate.State
+}
+
+func (si *SocketInfo) String() string {
+	return fmt.Sprintf("ID: %s, INode: %d, UID: %d, GID: %d, State: %s",
+		si.ID,
+		si.INode,
+		si.UID,
+		si.GID,
+		si.SocketState)
+}
+
+func (si *SocketInfo) Equal(socketInfo *SocketInfo) bool {
+	if si == socketInfo {
+		return true
+	}
+
+	return *si == *socketInfo
 }
